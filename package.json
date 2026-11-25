@@ -1,0 +1,1 @@
+{"name":"q-sense-studio","private":true,"scripts":{"build":"esbuild frontend/app.jsx --bundle --minify --legal-comments=eof --outfile=studio/static/app.js"},"dependencies":{"react":"18.3.1","react-dom":"18.3.1"},"devDependencies":{"esbuild":"0.25.12"}}
