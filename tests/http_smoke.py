@@ -70,6 +70,19 @@ def main():
         finally:
             server.terminate()
             server.wait(timeout=30)
+            # A completed worker can still hold its redirected output while Python
+            # unloads torch. On Windows cleanup must wait for that handle to close.
+            if os.name == "nt":
+                for log in Path(home).glob("runs/*/worker.log"):
+                    deadline = time.monotonic() + 30
+                    while True:
+                        try:
+                            log.rename(log.with_suffix(".closed"))
+                            break
+                        except PermissionError:
+                            if time.monotonic() >= deadline:
+                                raise
+                            time.sleep(.1)
 
 
 if __name__=="__main__":
