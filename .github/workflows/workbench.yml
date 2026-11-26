@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          architecture: ${{ runner.os == 'Windows' && 'x64' || 'arm64' }}
           cache: pip
       - if: runner.os == 'Windows'
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu

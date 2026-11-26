@@ -5,7 +5,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(os.environ.get("QSENSE_HOME", Path(__file__).resolve().parents[1] / ".local")).resolve()
+ROOT = Path(
+    os.environ.get("QSENSE_HOME", Path(__file__).resolve().parents[1] / ".local")
+).resolve()
 
 
 def now():
@@ -14,7 +16,9 @@ def now():
 
 def save(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf8") as f:
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, delete=False, encoding="utf8"
+    ) as f:
         json.dump(value, f, allow_nan=False)
     os.replace(f.name, path)
 
@@ -38,5 +42,9 @@ def digest(path):
 
 
 def catalog(kind, filename):
-    paths = sorted((ROOT / kind).glob("*/" + filename), key=lambda p: p.stat().st_mtime, reverse=True)
+    paths = sorted(
+        (ROOT / kind).glob("*/" + filename),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     return [read(p) for p in paths]

@@ -1,4 +1,5 @@
 """Build causal per-site feature sequences. NaNs and timestamp gaps mask windows."""
+
 import csv
 import math
 from datetime import datetime, timedelta
@@ -15,16 +16,26 @@ def dekad(date):
 
 def rainfall(path):
     with Path(path).open(encoding="utf-8-sig") as f:
-        rows = sorted((r for r in csv.DictReader(f)
-                       if r.get("PCODE","PH04010") == "PH04010" and r["version"] == "final"),
-                      key=lambda r: r["date"])
+        rows = sorted(
+            (
+                r
+                for r in csv.DictReader(f)
+                if r.get("PCODE", "PH04010") == "PH04010" and r["version"] == "final"
+            ),
+            key=lambda r: r["date"],
+        )
     dates = [datetime.fromisoformat(r["date"]) for r in rows]
     ticks = np.array([dekad(d) for d in dates])
     rain = np.array([float(r["rfh"]) for r in rows])
     if not np.isfinite(rain).all() or (rain < 0).any():
         raise ValueError("Invalid final rainfall")
     angle = (ticks % 36) * (2 * math.pi / 36)
-    return dates, ticks, np.column_stack((rain, np.sin(angle), np.cos(angle))), ["rain_mm", "season_sin", "season_cos"]
+    return (
+        dates,
+        ticks,
+        np.column_stack((rain, np.sin(angle), np.cos(angle))),
+        ["rain_mm", "season_sin", "season_cos"],
+    )
 
 
 def stage(path, mode, site):
@@ -57,17 +68,28 @@ def stage(path, mode, site):
     ticks = np.array([(t - dates[0]) // step for t in dates])
     values = np.array([series[site, t][0] for t in dates])
     # Only measured stage values are eligible as targets.
-    targets = np.array([series[site, t][0][0] if series[site, t][1] else np.nan for t in dates])
+    targets = np.array(
+        [series[site, t][0][0] if series[site, t][1] else np.nan for t in dates]
+    )
     features = list(values.T)
     names = list(base)
     if mode == "local":
         rain = {t: v for t, v in zip(dates, values[:, 1])}
         for hours in (1, 6, 24):
-            features.append([sum(rain.get(t - i * step, np.nan) for i in range(hours * 6)) for t in dates])
+            features.append(
+                [
+                    sum(rain.get(t - i * step, np.nan) for i in range(hours * 6))
+                    for t in dates
+                ]
+            )
             names.append(f"rain_{hours}h_mm")
         nanrow = ([np.nan] * len(base), False)
+
         def lag(station, column):
-            return np.array([series.get((station, t - step), nanrow)[0][column] for t in dates])
+            return np.array(
+                [series.get((station, t - step), nanrow)[0][column] for t in dates]
+            )
+
         features.append((values[:, 0] - lag(site, 0)) * 6)
         names.append("rise_cm_per_hour")
         links = {"C2": [("C3", 0), ("C3", 1)], "C4": [("C2", 0), ("C1", 0)]}
@@ -82,7 +104,7 @@ def windows(ticks, features, targets, lookback, horizon, start, end):
     for label in range(start + lookback + horizon - 1, end):
         origin = label - horizon
         first = origin - lookback + 1
-        x = features[first:origin + 1]
+        x = features[first : origin + 1]
         if ticks[label] - ticks[first] != label - first:
             continue
         if np.isfinite(x).all() and np.isfinite(targets[label]):
@@ -90,5 +112,7 @@ def windows(ticks, features, targets, lookback, horizon, start, end):
             ys.append(targets[label])
             ids.append(label)
     if not xs:
-        raise ValueError("No complete windows in a split. Check dates, coverage, QA and upstream features.")
+        raise ValueError(
+            "No complete windows in a split. Check dates, coverage, QA and upstream features."
+        )
     return np.array(xs), np.array(ys), np.array(ids)

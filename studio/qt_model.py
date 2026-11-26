@@ -1,4 +1,5 @@
 """Train a classical LSTM through a differentiable quantum state-vector generator."""
+
 import math
 
 import torch
@@ -18,6 +19,7 @@ class Forecast(nn.Module):
 
 class QuantumWeights(nn.Module):
     """Two layers of RY rotations and a nearest-neighbor CNOT ring."""
+
     def __init__(self, size, depth=2, width=24):
         super().__init__()
         self.size = size
@@ -35,7 +37,9 @@ class QuantumWeights(nn.Module):
         initial[0] = 1
         self.register_buffer("initial", initial)
         self.angles = nn.Parameter(torch.randn(depth, self.qubits) * 0.15 + math.pi / 4)
-        self.mapper = nn.Sequential(nn.Linear(self.qubits + 1, width), nn.Tanh(), nn.Linear(width, 1))
+        self.mapper = nn.Sequential(
+            nn.Linear(self.qubits + 1, width), nn.Tanh(), nn.Linear(width, 1)
+        )
 
     def probabilities(self):
         state = self.initial
@@ -43,22 +47,30 @@ class QuantumWeights(nn.Module):
             for qubit, angle in enumerate(layer):
                 zero, one = state.reshape(-1, 2, 1 << qubit).unbind(1)
                 c, s = (angle / 2).cos(), (angle / 2).sin()
-                state = torch.stack((c * zero - s * one, s * zero + c * one), 1).flatten()
+                state = torch.stack(
+                    (c * zero - s * one, s * zero + c * one), 1
+                ).flatten()
             state = state[self.permutation]
         return state.square()
 
     def forward(self):
         probs = self.probabilities()
         # Scale by the state count so a uniform-probability input has magnitude 1.
-        coordinates = torch.cat((self.bits, probs[:self.size, None] * probs.numel()), 1)
+        coordinates = torch.cat(
+            (self.bits, probs[: self.size, None] * probs.numel()), 1
+        )
         return self.mapper(coordinates).flatten()
 
 
 def generated_parameters(target, generator):
     flat = generator()
     sizes = [p.numel() for p in target.parameters()]
-    return {name: values.reshape_as(param) for (name, param), values in
-            zip(target.named_parameters(), flat.split(sizes), strict=True)}
+    return {
+        name: values.reshape_as(param)
+        for (name, param), values in zip(
+            target.named_parameters(), flat.split(sizes), strict=True
+        )
+    }
 
 
 class SoftmaxWeights(QuantumWeights):

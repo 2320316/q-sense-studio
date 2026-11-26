@@ -47,4 +47,4 @@ Use one verified storm interval per line (`name,start,end`, local ISO times). Te
 
 ## Development and verification
 
-Run `npm ci && npm run build` after editing the React source. Run `python -m unittest discover -s tests -v` and `python tests/http_smoke.py` inside the environment. Tests use generated fixtures in temporary workspaces. GitHub Actions checks macOS and Windows hosted runners, plus the bundled frontend. The Windows hosted runner is a Windows Server environment. For an actual Windows 11 smoke check, run the launcher, these same tests, and reopen the browser during a queued CPU run.
+Run `npm ci && npm run build` after editing the React source. Run `python -m unittest discover -s tests -v` and `python tests/http_smoke.py` inside the environment. Tests use generated fixtures in temporary workspaces. GitHub Actions checks macOS and Windows hosted runners, plus the bundled frontend. The Windows matrix includes Windows Server x64 and a separate Windows 11 ARM host running the x64 Python stack. To repeat the desktop smoke check on your own hardware, run the launcher, the same tests, and reopen the browser during a queued CPU run.
