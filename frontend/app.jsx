@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, Empty, Heading, Icon, labels, num, Plot, Tag } from "./common";
 import { Library, Review, Sources } from "./library";
-import { Monitor, preset, Training } from "./training";
+import { defaultDataset, Monitor, preset, Training } from "./training";
 
 const pages = [
   ["Overview", "home"],
@@ -323,7 +323,7 @@ function App() {
   useEffect(() => {
     let ok = true;
     setDetail(null);
-    if (!active || page !== "Runs") return;
+    if (!active || !["Training", "Runs"].includes(page)) return;
     const poll = () =>
       api("runs/" + active)
         .then((r) => {
@@ -355,7 +355,7 @@ function App() {
             ? "hourly"
             : "local"
           : "rainfall",
-      item = d || library.find((d) => d.kind === "rainfall");
+      item = d || defaultDataset(library, mode);
     setCfg({
       ...preset(mode, item?.id || ""),
       ...(mode !== "rainfall" && item?.sites?.length
@@ -494,9 +494,14 @@ function App() {
           {page === "Sources" && (
             <Sources
               sources={sources}
-              onCollect={(s) =>
+              onCollect={(s, query) =>
                 act(async () =>
-                  setStage(await api("sources/" + s.id + "/collect", {})),
+                  setStage(
+                    await api(
+                      "sources/" + s.id + (query ? "/hourly" : "/collect"),
+                      query || {},
+                    ),
+                  ),
                 )
               }
               attach={(s) => pickFiles(s.url)}
@@ -504,7 +509,17 @@ function App() {
           )}
           {page === "Training" && (
             <Training
-              {...{ library, devices, cfg, setCfg, act }}
+              {...{
+                library,
+                devices,
+                cfg,
+                setCfg,
+                act,
+                runs,
+                active,
+                setActive,
+                detail,
+              }}
               start={(c) =>
                 act(async () => {
                   const s = await api("runs", c);
@@ -517,7 +532,7 @@ function App() {
           )}
           {page === "Runs" && (
             <Monitor
-              {...{ runs, active, setActive, detail, act, refresh }}
+              {...{ runs, active, setActive, detail, act, refresh, busy }}
               duplicate={(c) => {
                 setCfg({ ...c, name: c.name + " · copy" });
                 go("Training");

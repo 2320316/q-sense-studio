@@ -1,3 +1,4 @@
+import { WeatherCollection, WeatherMap } from "./weather";
 import React, { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -72,37 +73,45 @@ export function Sources({ sources, onCollect, attach }) {
         title="Data sources"
         desc="Collect public data or attach files delivered by a provider."
       />
+      <WeatherMap />
+      <WeatherCollection
+        sources={sources.filter((s) => s.group === "additional")}
+        onCollect={onCollect}
+      />
+      <h2 className="sectionTitle">Thesis sources</h2>
       <div className="sourceGrid">
-        {sources.map((s) => (
-          <section className="panel source" key={s.id}>
-            <div className="sourceIcon">
-              <Icon name={s.action === "Collect" ? "down" : "source"} />
-            </div>
-            <small>{s.provider}</small>
-            <h2>{s.name}</h2>
-            <p>{s.kind}</p>
-            <small>
-              <Icon name="pin" size={14} /> {s.area}
-            </small>
-            <div className="actions">
-              {s.action === "Collect" ? (
-                <button onClick={() => onCollect(s)}>Collect dataset</button>
-              ) : (
-                <a
-                  className="button secondary"
-                  target="_blank"
-                  rel="noreferrer"
-                  href={s.url}
-                >
-                  {s.action} ↗
-                </a>
-              )}
-              <button className="textButton" onClick={() => attach(s)}>
-                Attach file
-              </button>
-            </div>
-          </section>
-        ))}
+        {sources
+          .filter((s) => s.group !== "additional")
+          .map((s) => (
+            <section className="panel source" key={s.id}>
+              <div className="sourceIcon">
+                <Icon name={s.action === "Collect" ? "down" : "source"} />
+              </div>
+              <small>{s.provider}</small>
+              <h2>{s.name}</h2>
+              <p>{s.kind}</p>
+              <small>
+                <Icon name="pin" size={14} /> {s.area}
+              </small>
+              <div className="actions">
+                {s.action === "Collect" ? (
+                  <button onClick={() => onCollect(s)}>Collect dataset</button>
+                ) : (
+                  <a
+                    className="button secondary"
+                    target="_blank"
+                    rel="noreferrer"
+                    href={s.url}
+                  >
+                    {s.action} ↗
+                  </a>
+                )}
+                <button className="textButton" onClick={() => attach(s)}>
+                  Attach file
+                </button>
+              </div>
+            </section>
+          ))}
       </div>
     </>
   );

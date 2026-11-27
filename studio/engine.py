@@ -8,9 +8,10 @@ import numpy as np
 import torch
 from torch.func import functional_call
 
+from .diagnostics import snapshot
 from .experiment import prepare, shape_info
 from .qt_model import Forecast, QuantumWeights, SoftmaxWeights, generated_parameters
-from .storage import save
+from .storage import read, save
 
 
 def metrics(y, p):
@@ -189,6 +190,12 @@ def train_arm(c, p, arm, seed, dest, notify, halt, initial=None):
                 history=history,
             ),
         )
+        with torch.no_grad():
+            weights = parameters() if generated else dict(target.named_parameters())
+            save(
+                dest / "diagnostics.json",
+                snapshot(weights, x[0], p["names"], model, arm, epoch),
+            )
         notify(history, best_epoch)
         halt()
     model.load_state_dict(best_state)
@@ -263,6 +270,7 @@ def run(root, c, plan, notify, halt):
         p = prepare(c, fold)
 
         def progress(history, best, phase="fit"):
+            source = job if phase == "fit" else warm
             notify(
                 dict(
                     job=number,
@@ -272,6 +280,7 @@ def run(root, c, plan, notify, halt):
                     init=init,
                     phase=phase,
                     history=history,
+                    diagnostics=read(source / "diagnostics.json"),
                     best_epoch=best,
                 )
             )

@@ -2,9 +2,10 @@
   "name": "q-sense-studio",
   "private": true,
   "scripts": {
-    "build": "esbuild frontend/app.jsx --bundle --minify --legal-comments=eof --outfile=studio/static/app.js"
+    "build": "esbuild frontend/app.jsx --bundle --minify --legal-comments=eof --loader:.png=dataurl --outfile=studio/static/app.js"
   },
   "dependencies": {
+    "leaflet": "1.9.4",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

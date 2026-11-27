@@ -1,3 +1,4 @@
+import { Trace, TrainingView, Verification } from "./diagnostics";
 import React, { useEffect, useState } from "react";
 import {
   api,
@@ -11,6 +12,18 @@ import {
   Plot,
   Tag,
 } from "./common";
+export function defaultDataset(library, mode) {
+  if (mode === "rainfall") {
+    return library
+      .filter((d) => d.kind === "rainfall")
+      .sort((a, b) => b.rows - a.rows)[0];
+  }
+  return library.find(
+    (d) =>
+      d.kind === "stage" && d.interval_minutes === (mode === "local" ? 10 : 60),
+  );
+}
+
 export function preset(mode, dataset = "") {
   const rain = mode === "rainfall";
   return {
@@ -47,7 +60,21 @@ export function preset(mode, dataset = "") {
     warm_site: "",
   };
 }
-export function Training({ library, devices, cfg, setCfg, start, act }) {
+export function Training({
+  library,
+  devices,
+  cfg,
+  setCfg,
+  start,
+  act,
+  runs,
+  active,
+  setActive,
+  detail,
+}) {
+  const [monitor, setMonitor] = useState(() =>
+    runs.some((r) => r.id === active && r.status === "running"),
+  );
   const [plan, setPlan] = useState(null),
     [seedText, setSeeds] = useState(cfg.seeds.join(", ")),
     [eventText, setEvents] = useState(
@@ -110,12 +137,41 @@ export function Training({ library, devices, cfg, setCfg, start, act }) {
       />
     </Field>
   );
+  const heading = (
+    <Heading
+      title="Training"
+      desc={
+        monitor
+          ? "Inspect the network as its weights change."
+          : "Configure a reproducible, local experiment."
+      }
+    >
+      <button
+        className={monitor ? "secondary" : ""}
+        aria-pressed={!monitor}
+        onClick={() => setMonitor(false)}
+      >
+        Experiment setup
+      </button>
+      <button
+        className={monitor ? "" : "secondary"}
+        aria-pressed={monitor}
+        onClick={() => setMonitor(true)}
+      >
+        Inside the model
+      </button>
+    </Heading>
+  );
+  if (monitor)
+    return (
+      <>
+        {heading}
+        <TrainingView {...{ runs, active, setActive, detail }} />
+      </>
+    );
   return (
     <>
-      <Heading
-        title="Training setup"
-        desc="Configure a reproducible, local experiment."
-      />
+      {heading}
       <div className="trainGrid">
         <div>
           <section className="panel">
@@ -126,14 +182,7 @@ export function Training({ library, devices, cfg, setCfg, start, act }) {
                   value={cfg.mode}
                   onChange={(e) => {
                     const m = e.target.value,
-                      p = preset(
-                        m,
-                        library.find(
-                          (d) =>
-                            d.kind ===
-                            (m === "rainfall" ? "rainfall" : "stage"),
-                        )?.id || "",
-                      );
+                      p = preset(m, defaultDataset(library, m)?.id || "");
                     setCfg(p);
                     setSeeds(p.seeds.join(", "));
                     setEvents("");
@@ -389,6 +438,7 @@ export function Monitor({
   act,
   refresh,
   duplicate,
+  busy,
 }) {
   const [job, setJob] = useState(0),
     [points, setPoints] = useState([]),
@@ -499,9 +549,31 @@ export function Monitor({
                   >
                     Duplicate and edit
                   </button>
+                  {["completed", "failed", "cancelled"].includes(
+                    state.status,
+                  ) && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        act(async () => {
+                          const next = await api("runs/" + id + "/retrain", {});
+                          await refresh();
+                          setActive(next.id);
+                        })
+                      }
+                    >
+                      Retrain
+                    </button>
+                  )}
                   {link("config.json", "Configuration")}
                 </div>
               </section>
+              {prog.diagnostics && (
+                <details className="panel trace">
+                  <summary>Neural map and epoch diagnostics</summary>
+                  <Trace d={prog.diagnostics} caption={prog.phase} />
+                </details>
+              )}
               {prog.history && (
                 <section className="panel">
                   <div className="panelHead">
@@ -593,7 +665,13 @@ export function Monitor({
                     {num(current.latency_ms, 3)} ms per forecast on{" "}
                     {current.benchmark_device}
                   </p>
-                  {current.circuit && (
+                  <Verification
+                    key={id + "-" + current.job}
+                    id={id}
+                    job={current.job}
+                    unit={detail.config.mode === "rainfall" ? "mm" : "cm"}
+                  />
+                  {current.arm === "qt" && current.circuit && (
                     <Circuit
                       qubits={current.circuit.qubits}
                       depth={current.circuit.depth}

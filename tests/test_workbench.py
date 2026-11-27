@@ -1,6 +1,9 @@
 """Research protocol and local browser API acceptance tests; all observations are fixtures."""
 
 import csv
+import io
+import json
+from unittest.mock import patch
 import math
 import os
 import tempfile
@@ -16,7 +19,7 @@ os.environ["QSENSE_HOME"] = sandbox.name
 from fastapi.testclient import TestClient
 from studio.engine import Halt, train_arm
 from studio.experiment import Experiment, partition, prepare, preview
-from studio.library import commit, inspect_files, normalize
+from studio.library import data, commit, inspect_files, normalize
 from studio.server import app
 from studio.statistics import holm, indicators, report
 from studio.storage import ROOT, read, save
@@ -114,6 +117,7 @@ class Workbench(unittest.TestCase):
         root = ROOT / "runs" / "integration"
         root.mkdir(parents=True)
         save(root / "config.json", c.model_dump(mode="json"))
+        plan["source_sha256"] = data(c.dataset)[1]["sha256"]
         save(root / "plan.json", plan)
         save(
             root / "state.json",
@@ -144,6 +148,102 @@ class Workbench(unittest.TestCase):
                 self.client.get("/api/runs/integration/download/" + file).status_code,
                 200,
             )
+
+        job = root / "job-000"
+        trace = read(job / "diagnostics.json")
+        self.assertEqual(len(trace["gates"]), c.lookback)
+        self.assertEqual(len(trace["quantum"]["angles"]), c.depth)
+        exported = torch.load(job / "inference.pt", weights_only=True)
+        from studio.qt_model import Forecast
+
+        model = Forecast(len(exported["features"]), exported["hidden"])
+        model.load_state_dict(exported["state_dict"])
+        first = prepare(c)["raw"][0][0][:1]
+        scale = exported["scale"]
+        x = torch.tensor(
+            (first - scale["feature_mean"]) / scale["feature_std"], dtype=torch.float32
+        )
+        self.assertAlmostEqual(trace["output"], model(x).item(), places=5)
+        endpoint = "/api/runs/integration/jobs/0/verify"
+        args = {"rounds": 4, "seed": 7, "max_mae": 0}
+        check = self.client.post(endpoint, json=args).json()
+        self.assertTrue(check["passed"], check)
+        self.assertEqual(len(check["rounds"]), 4)
+        self.assertEqual(check["within_limit"], 0)
+        self.assertEqual(
+            check["rounds"], self.client.post(endpoint, json=args).json()["rounds"]
+        )
+        self.assertEqual(
+            self.client.post(endpoint, json={"rounds": 0}).status_code, 422
+        )
+        self.assertEqual(
+            self.client.get("/api/runs/integration/download/verification.json").json()[
+                "seed"
+            ],
+            7,
+        )
+        path = job / "forecast.csv"
+        with path.open() as f:
+            archived = list(csv.DictReader(f))
+        archived[0][check["arm"]] = "100000"
+        with path.open("w", newline="") as out:
+            writer = csv.DictWriter(out, fieldnames=archived[0].keys())
+            writer.writeheader()
+            writer.writerows(archived)
+        self.assertFalse(self.client.post(endpoint, json=args).json()["passed"])
+        child = self.client.post("/api/runs/integration/retrain", json={}).json()
+        self.assertEqual(child["parent"], "integration")
+        self.assertEqual(
+            read(ROOT / "runs" / child["id"] / "config.json"),
+            read(root / "config.json"),
+        )
+
+    def test_gridded_rain_collectors(self):
+        query = dict(
+            latitude=14.08, longitude=121.15, start="2024-01-01", end="2024-01-01"
+        )
+        cases = [
+            (
+                "power",
+                {
+                    "properties": {
+                        "parameter": {
+                            "PRECTOTCORR": {"2024010100": 1.5, "2024010101": -999}
+                        }
+                    },
+                    "parameters": {"PRECTOTCORR": {"units": "mm/hour"}},
+                    "header": {"fill_value": -999, "time_standard": "UTC"},
+                },
+            ),
+            (
+                "era5",
+                {
+                    "hourly_units": {"precipitation": "mm"},
+                    "utc_offset_seconds": 0,
+                    "hourly": {
+                        "time": ["2024-01-01T01:00", "2024-01-01T02:00"],
+                        "precipitation": [1.5, None],
+                    },
+                },
+            ),
+        ]
+        for provider, payload in cases:
+            with patch(
+                "studio.weather.fetch", return_value=io.StringIO(json.dumps(payload))
+            ):
+                route = f"/api/sources/{provider}/hourly"
+                response = self.client.post(route, json=query)
+                self.assertEqual(response.status_code, 200, response.text)
+                info = response.json()[0]
+                self.assertEqual(info["provenance"], "gridded estimate")
+                self.assertEqual(
+                    info["preview"][0]["timestamp"], "2024-01-01T01:00:00+00:00"
+                )
+                self.assertEqual(info["preview"][1]["rain_mm"], "")
+                self.assertEqual(
+                    self.client.post(route, json={**query, "latitude": 91}).status_code,
+                    422,
+                )
 
     def test_checkpoint_resume(self):
         c = self.config.model_copy(update={"epochs": 3})

@@ -215,7 +215,7 @@ def layer(path):
     )
 
 
-def inspect_files(raw, source="Local import"):
+def inspect_files(raw, source="Local import", provenance="observed"):
     records = []
     for file in sorted(raw.iterdir()):
         ext = file.suffix.lower()
@@ -258,7 +258,7 @@ def inspect_files(raw, source="Local import"):
                 file=trusted.name,
                 hashes=members,
                 sha256=digest(trusted),
-                provenance="observed",
+                provenance=provenance,
             )
             save(work / "info.json", detail)
             records.append(detail)

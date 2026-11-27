@@ -36,4 +36,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: git diff --exit-code studio/static/app.js
+      - run: git diff --exit-code studio/static/app.js studio/static/app.css

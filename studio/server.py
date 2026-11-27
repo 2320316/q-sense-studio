@@ -30,6 +30,8 @@ from .library import (
 )
 from .sources import SOURCES, collect
 from .storage import ROOT, catalog, folder, now, read, save
+from .verification import TrialSettings, verify
+from .weather import EXTRA_SOURCES, WeatherQuery, collect_weather
 from .worker import update
 
 STATIC = Path(__file__).parent / "static"
@@ -168,7 +170,15 @@ def map_columns(key: str, cfg: dict):
 
 @app.get("/api/sources")
 def sources():
-    return SOURCES
+    return SOURCES + EXTRA_SOURCES
+
+
+@app.post("/api/sources/{key}/hourly")
+def acquire_hourly(key: str, query: WeatherQuery):
+    try:
+        return collect_weather(key, query)
+    except Exception as exc:
+        raise ValueError(f"Hourly collection failed: {exc}") from exc
 
 
 @app.post("/api/sources/{key}/collect")
@@ -230,6 +240,10 @@ def preflight(c: Experiment):
 
 @app.post("/api/runs")
 def enqueue(c: Experiment):
+    return queue_run(c)
+
+
+def queue_run(c, parent=None):
     plan = preflight(c)
     key = uuid4().hex
     root = ROOT / "runs" / key
@@ -240,6 +254,8 @@ def enqueue(c: Experiment):
         plan["warm_sha256"] = data(c.warm_dataset)[1]["sha256"]
     save(root / "plan.json", plan)
     state = dict(id=key, name=c.name, status="queued", created=now(), jobs=plan["jobs"])
+    if parent:
+        state["parent"] = parent
     save(root / "state.json", state)
     return state
 
@@ -270,6 +286,14 @@ def inspect_run(key: str):
 @app.post("/api/runs/{key}/{action}")
 def control(key: str, action: str):
     root = folder("runs", key)
+    if action == "retrain":
+        if read(root / "state.json")["status"] not in (
+            "completed",
+            "cancelled",
+            "failed",
+        ):
+            raise ValueError("Finish the original run before retraining")
+        return queue_run(Experiment(**read(root / "config.json")), parent=key)
     transitions = {
         "pause": {"running": "pausing", "queued": "paused"},
         "resume": {"paused": "queued", "failed": "queued"},
@@ -297,6 +321,27 @@ def job_folder(key, job):
     return path
 
 
+@app.post("/api/runs/{key}/jobs/{job}/verify")
+def verification(key: str, job: int, settings: TrialSettings):
+    path = job_folder(key, job)
+    try:
+        with FileLock(str(path / "verification.lock"), timeout=0):
+            return verify(path, settings)
+    except Timeout as exc:
+        raise ValueError("Verification is already running for this job") from exc
+
+
+@app.get("/api/runs/{key}/jobs/{job}/inspection")
+def inspection(key: str, job: int):
+    path = job_folder(key, job)
+    return {
+        name: read(path / (name + ".json"))
+        if (path / (name + ".json")).exists()
+        else None
+        for name in ("diagnostics", "verification")
+    }
+
+
 @app.get("/api/runs/{key}/series/{job}")
 def points(key: str, job: int):
     with (job_folder(key, job) / "forecast.csv").open() as f:
@@ -309,7 +354,13 @@ def download(key: str, artifact: str, job: int = 0):
     root = folder("runs", key)
     if artifact in ("config.json", "statistics.json", "plan.json"):
         file = root / artifact
-    elif artifact in ("forecast.csv", "inference.pt", "result.json", "trained.pt"):
+    elif artifact in (
+        "forecast.csv",
+        "inference.pt",
+        "result.json",
+        "trained.pt",
+        "verification.json",
+    ):
         file = job_folder(key, job) / artifact
     elif artifact == "figure.svg":
         import matplotlib
