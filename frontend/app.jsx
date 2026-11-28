@@ -273,6 +273,7 @@ function FieldSelect({ value, change, items }) {
 }
 function App() {
   const [page, setPage] = useState("Overview"),
+    [openPanel, setOpenPanel] = useState(false),
     [library, setLibrary] = useState([]),
     [runs, setRuns] = useState([]),
     [sources, setSources] = useState([]),
@@ -287,7 +288,8 @@ function App() {
     [online, setOnline] = useState(true);
   const fileRef = useRef(),
     provider = useRef("Local import");
-  const go = (p) => {
+  const go = (p, present = false) => {
+    setOpenPanel(present);
     setPage(p);
     setErr("");
     window.scrollTo(0, 0);
@@ -509,6 +511,7 @@ function App() {
           )}
           {page === "Training" && (
             <Training
+              openPanel={openPanel}
               {...{
                 library,
                 devices,
@@ -532,6 +535,7 @@ function App() {
           )}
           {page === "Runs" && (
             <Monitor
+              present={() => go("Training", true)}
               {...{ runs, active, setActive, detail, act, refresh, busy }}
               duplicate={(c) => {
                 setCfg({ ...c, name: c.name + " · copy" });

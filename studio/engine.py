@@ -11,6 +11,7 @@ from torch.func import functional_call
 from .diagnostics import snapshot
 from .experiment import prepare, shape_info
 from .qt_model import Forecast, QuantumWeights, SoftmaxWeights, generated_parameters
+from .quantum_trace import record
 from .storage import read, save
 
 
@@ -176,6 +177,20 @@ def train_arm(c, p, arm, seed, dest, notify, halt, initial=None):
                 epoch=epoch, loss=total / len(x), validation=score * scale["target_std"]
             )
         )
+        with torch.no_grad():
+            weights = parameters() if generated else dict(target.named_parameters())
+            diagnostics = snapshot(weights, x[0], p["names"], model, arm, epoch)
+            save(dest / "diagnostics.json", diagnostics)
+            if arm == "qt":
+                record(
+                    dest,
+                    dict(
+                        epoch=epoch,
+                        validation=history[-1]["validation"],
+                        loss=history[-1]["loss"],
+                        **diagnostics["quantum"],
+                    ),
+                )
         atomic_weights(
             ck,
             dict(
@@ -190,12 +205,6 @@ def train_arm(c, p, arm, seed, dest, notify, halt, initial=None):
                 history=history,
             ),
         )
-        with torch.no_grad():
-            weights = parameters() if generated else dict(target.named_parameters())
-            save(
-                dest / "diagnostics.json",
-                snapshot(weights, x[0], p["names"], model, arm, epoch),
-            )
         notify(history, best_epoch)
         halt()
     model.load_state_dict(best_state)

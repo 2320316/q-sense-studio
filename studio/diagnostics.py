@@ -40,6 +40,14 @@ def snapshot(weights, probe, features, model, arm, epoch):
         result["quantum"] = dict(
             qubits=model.qubits,
             angles=model.angles.cpu().tolist(),
+            one_probabilities=torch.stack(
+                [
+                    probs.reshape(-1, 2, 1 << wire)[:, 1, :].sum()
+                    for wire in range(model.qubits)
+                ]
+            )
+            .cpu()
+            .tolist(),
             states=ids.cpu().tolist(),
             probabilities=vals.cpu().tolist(),
         )

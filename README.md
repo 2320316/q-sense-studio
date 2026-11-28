@@ -4,7 +4,7 @@ A local research application for training Quantum-Train LSTM forecasts for Baran
 
 ## Launch
 
-Install 64-bit Python **3.11 or newer** with pip. Python 3.12 is the cross-platform CI target. Clone or download this private repository and extract it to a writable folder.
+Install 64-bit Python **3.11 or newer** with pip. Python 3.12 is the cross-platform CI target. Clone or download this repository and extract it to a writable folder.
 
 - **macOS:** Double-click **Start Studio.command** or run `bash "Start Studio.command"` from Terminal.
 - **Windows 11:** Open PowerShell in the extracted folder and run `.\Start-Studio.ps1`. If local policy prevents running scripts, use the Python commands below in a terminal.
@@ -44,6 +44,10 @@ With the supplied national CSV (SHA-256 `bb41763d1d37f3a4e97c0d58051916e855664dc
 **Sources → Additional sources** collects ERA5 or POWER hourly precipitation by point and UTC date range. Review and accept the staged dataset, then select it as the rainfall companion when mapping an hourly gauge table. Choose `timestamp` and `rain_mm` for the join. Both collectors retain missing values, record the request URL and produce interval-ending UTC timestamps. POWER timestamps label the beginning of the hour, so the collector advances them one hour. The collected rain is a gridded estimate. Gauge stage remains the measured forecast target. [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api) · [NASA POWER hourly API](https://power.larc.nasa.gov/docs/services/api/temporal/hourly/) · [POWER timestamp convention](https://power.larc.nasa.gov/docs/faqs/other/)
 
 ### Training diagnostics and stress tests
+
+From **Runs** choose **Present this run**, or open **Training → Panel view**. The circuit, learning monitor and qubit evolution charts follow the selected epoch. **Forecasts & verification** shows the selected QT job’s best-validation export, observed and predicted series, baseline errors, downloads and repeatable stress tests. **Thesis evaluation** reports run-wide comparisons. Missing storm intervals are labeled explicitly. If a local screenshot reference is installed, **Wawa screenshots** displays it separately with its original figures. To move that reference to another installation, copy the local `panel-reference` folder into its `QSENSE_HOME` (default `.local`).
+
+**Panel view** follows the QT job or lets you choose a fold, seed and initialization. **Play epochs** replays recorded quantum states. Drag the epoch slider or select a rotation block to inspect its RY angles and ordered CNOT ring. The probability bars show the final distribution for that epoch. **Expand for panel** gives the presentation the full app viewport. The comparison shows optimization budget and held-out MAE for matched completed arms. With the supplied Batangas pilot, QT trained 359 parameters and the classical LSTM trained 1,361. Both exported 1,361 parameters. The parameter reduction was 73.6% and the QT model’s MAE was 0.79 mm higher. Completed runs from before epoch recording can display their best saved circuit.
 
 **Training → Inside the model** follows the selected run or recalls a completed job’s last epoch. Each snapshot traces one fixed training window through the effective LSTM. Edges show candidate-input and readout weights for up to 12 hidden units. The gate chart and hidden-state chart show every time step. QT jobs also display simulated basis probabilities and trained rotation angles. A saved trace describes the indicated epoch. The inference export uses the best validation epoch. Older runs acquire telemetry when retrained.
 

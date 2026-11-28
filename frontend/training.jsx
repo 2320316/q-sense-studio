@@ -1,4 +1,10 @@
-import { Trace, TrainingView, Verification } from "./diagnostics";
+import { PanelView } from "./panel";
+import {
+  LearningMonitor,
+  ForecastEvidence,
+  ThesisEvaluation,
+} from "./evidence";
+import { Trace, TrainingView } from "./diagnostics";
 import React, { useEffect, useState } from "react";
 import {
   api,
@@ -71,10 +77,16 @@ export function Training({
   active,
   setActive,
   detail,
+  openPanel,
 }) {
-  const [monitor, setMonitor] = useState(() =>
-    runs.some((r) => r.id === active && r.status === "running"),
+  const [view, setView] = useState(() =>
+    openPanel
+      ? "panel"
+      : runs.some((r) => r.id === active && r.status === "running")
+        ? "trace"
+        : "setup",
   );
+  const monitor = view === "trace";
   const [plan, setPlan] = useState(null),
     [seedText, setSeeds] = useState(cfg.seeds.join(", ")),
     [eventText, setEvents] = useState(
@@ -141,27 +153,43 @@ export function Training({
     <Heading
       title="Training"
       desc={
-        monitor
-          ? "Inspect the network as its weights change."
-          : "Configure a reproducible, local experiment."
+        view === "panel"
+          ? "Replay quantum training and compare matched forecasts."
+          : monitor
+            ? "Inspect the network as its weights change."
+            : "Configure a reproducible, local experiment."
       }
     >
       <button
-        className={monitor ? "secondary" : ""}
-        aria-pressed={!monitor}
-        onClick={() => setMonitor(false)}
+        className={view === "setup" ? "" : "secondary"}
+        aria-pressed={view === "setup"}
+        onClick={() => setView("setup")}
       >
         Experiment setup
       </button>
       <button
         className={monitor ? "" : "secondary"}
         aria-pressed={monitor}
-        onClick={() => setMonitor(true)}
+        onClick={() => setView("trace")}
       >
         Inside the model
       </button>
+      <button
+        className={view === "panel" ? "" : "secondary"}
+        aria-pressed={view === "panel"}
+        onClick={() => setView("panel")}
+      >
+        Panel view
+      </button>
     </Heading>
   );
+  if (view === "panel")
+    return (
+      <>
+        {heading}
+        <PanelView key={active} {...{ runs, active, setActive, detail }} />
+      </>
+    );
   if (monitor)
     return (
       <>
@@ -438,27 +466,15 @@ export function Monitor({
   act,
   refresh,
   duplicate,
+  present,
   busy,
 }) {
-  const [job, setJob] = useState(0),
-    [points, setPoints] = useState([]),
-    [metric, setMetric] = useState("mae");
+  const [job, setJob] = useState(0);
   const state = detail?.state,
     prog = detail?.progress || {},
     res = detail?.results || [],
     current = res.find((r) => r.job === job) || res[0],
     id = state?.id;
-  useEffect(() => {
-    let ok = true;
-    setPoints([]);
-    if (current && id)
-      api("runs/" + id + "/series/" + current.job)
-        .then((r) => ok && setPoints(r))
-        .catch(() => {});
-    return () => {
-      ok = false;
-    };
-  }, [id, current?.job]);
   const control = (action) =>
     act(async () => {
       await api("runs/" + id + "/" + action, {});
@@ -565,6 +581,11 @@ export function Monitor({
                       Retrain
                     </button>
                   )}
+                  {detail.config.arms.includes("qt") && (
+                    <button className="secondary" onClick={present}>
+                      Present this run
+                    </button>
+                  )}
                   {link("config.json", "Configuration")}
                 </div>
               </section>
@@ -575,36 +596,30 @@ export function Monitor({
                 </details>
               )}
               {prog.history && (
-                <section className="panel">
-                  <div className="panelHead">
-                    <h2>Learning curves</h2>
-                    <Tag>Epoch {prog.history.at(-1)?.epoch}</Tag>
-                  </div>
-                  <p>
-                    {labels[prog.arm]} · {prog.phase} · fold {prog.fold + 1} ·
-                    seed {prog.seed} · best epoch {prog.best_epoch}
-                  </p>
-                  <Plot
-                    rows={prog.history}
-                    xkey="epoch"
-                    fields={["validation"]}
-                    unit="Validation MAE · physical units"
-                    height={145}
-                    filter={false}
-                  />
-                  <Plot
-                    rows={prog.history}
-                    xkey="epoch"
-                    fields={["loss"]}
-                    unit="Training MSE · normalized"
-                    height={135}
-                    filter={false}
-                  />
-                </section>
+                <LearningMonitor
+                  history={prog.history}
+                  epochs={detail.config.epochs}
+                  unit={detail.config.mode === "rainfall" ? "mm" : "cm"}
+                  status={state.status}
+                  caption={
+                    labels[prog.arm] +
+                    " · " +
+                    prog.phase +
+                    " · fold " +
+                    (prog.fold + 1) +
+                    " · seed " +
+                    prog.seed +
+                    " · best epoch " +
+                    prog.best_epoch
+                  }
+                />
               )}
               {current && (
-                <section className="panel">
-                  <h2>Held-out forecasts</h2>
+                <ForecastEvidence
+                  key={id + "-" + current.job}
+                  {...{ id, current }}
+                  unit={detail.config.mode === "rainfall" ? "mm" : "cm"}
+                >
                   <Field label="Comparison job">
                     <select
                       value={current.job}
@@ -618,111 +633,14 @@ export function Monitor({
                       ))}
                     </select>
                   </Field>
-                  <Plot
-                    rows={points}
-                    fields={[
-                      "observed",
-                      current.arm,
-                      ...Object.keys(current.metrics).filter(
-                        (k) => k !== current.arm,
-                      ),
-                    ]}
-                    unit={
-                      detail.config.mode === "rainfall"
-                        ? "Rainfall (mm)"
-                        : "Stage (cm)"
-                    }
-                  />
-                  <Field label="Metric">
-                    <select
-                      value={metric}
-                      onChange={(e) => setMetric(e.target.value)}
-                    >
-                      {["mae", "rmse", "nse"].map((k) => (
-                        <option value={k} key={k}>
-                          {k.toUpperCase()}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div className="miniStats">
-                    {Object.entries(current.metrics).map(([k, v]) => (
-                      <span key={k}>
-                        {labels[k]}
-                        <b>{num(v?.[metric])}</b>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="actions">
-                    {link("forecast.csv", "Forecast CSV")}
-                    {link("figure.svg", "Figure SVG")}
-                    {link("inference.pt", "Inference model")}
-                    {link("result.json", "Job metrics")}
-                  </div>
-                  <p>
-                    {num(current.trainable)} trainable · {num(current.exported)}{" "}
-                    exported · {num(current.bytes / 1024, 1)} KiB ·{" "}
-                    {num(current.latency_ms, 3)} ms per forecast on{" "}
-                    {current.benchmark_device}
-                  </p>
-                  <Verification
-                    key={id + "-" + current.job}
-                    id={id}
-                    job={current.job}
-                    unit={detail.config.mode === "rainfall" ? "mm" : "cm"}
-                  />
-                  {current.arm === "qt" && current.circuit && (
-                    <Circuit
-                      qubits={current.circuit.qubits}
-                      depth={current.circuit.depth}
-                      info={current.circuit}
-                    />
-                  )}
-                </section>
+                </ForecastEvidence>
               )}
               {detail.statistics?.jobs > 0 && (
-                <section className="panel">
-                  <div className="panelHead">
-                    <h2>Thesis evaluation</h2>
-                    <Tag>{detail.statistics.warning_tier}</Tag>
-                  </div>
-                  <p>
-                    {detail.statistics.event_metrics?.length || 0} event
-                    summaries · {detail.statistics.comparisons?.length || 0}{" "}
-                    paired comparisons
-                  </p>
-                  {detail.statistics.comparisons?.length > 0 && (
-                    <div className="scroll">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Hypothesis</th>
-                            <th>Contrast</th>
-                            <th>Metric</th>
-                            <th>Δ [95% CI]</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detail.statistics.comparisons.map((r, i) => (
-                            <tr key={i}>
-                              <td>{r.hypothesis}</td>
-                              <td>
-                                {r.left} / {r.right}
-                              </td>
-                              <td>{r.metric}</td>
-                              <td>
-                                {num(r.delta)} [
-                                {(r.ci95 || []).map((v) => num(v)).join(", ")}]
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  {link("statistics.json", "Export evaluation")}
-                  {link("plan.json", "Split manifest")}
-                </section>
+                <ThesisEvaluation
+                  unit={detail.config.mode === "rainfall" ? "mm" : "cm"}
+                  id={id}
+                  statistics={detail.statistics}
+                />
               )}
             </>
           )}

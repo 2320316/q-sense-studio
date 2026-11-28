@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import HTTPException, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
@@ -28,6 +28,7 @@ from .library import (
     normalize,
     thin,
 )
+from .quantum_trace import frames_since
 from .sources import SOURCES, collect
 from .storage import ROOT, catalog, folder, now, read, save
 from .verification import TrialSettings, verify
@@ -331,6 +332,21 @@ def verification(key: str, job: int, settings: TrialSettings):
         raise ValueError("Verification is already running for this job") from exc
 
 
+@app.get("/api/runs/{key}/quantum/{job}")
+def quantum_history(
+    key: str, job: int, after: int = Query(default=0, ge=0), warm: bool = False
+):
+    root = folder("runs", key)
+    specs = read(root / "plan.json")["specs"]
+    if job < 0 or job >= len(specs):
+        raise ValueError("Unknown job")
+    _, seed, arm, init = specs[job]
+    if arm != "qt" or (warm and init != "transfer"):
+        raise ValueError("Select a quantum training phase")
+    directory = root / (f"warm-{seed}-qt" if warm else f"job-{job:03}")
+    return frames_since(directory, after)
+
+
 @app.get("/api/runs/{key}/jobs/{job}/inspection")
 def inspection(key: str, job: int):
     path = job_folder(key, job)
@@ -404,6 +420,23 @@ def download(key: str, artifact: str, job: int = 0):
     if not file.exists():
         raise ValueError("Artifact is not ready")
     return FileResponse(file, filename=file.name)
+
+
+@app.get("/api/presentation/reference")
+def presentation_reference():
+    manifest = ROOT / "panel-reference" / "reference.json"
+    return read(manifest) if manifest.exists() else None
+
+
+@app.get("/api/presentation/reference/image/{index}")
+def reference_image(index: int):
+    manifest = presentation_reference()
+    if not manifest or not 0 <= index < len(manifest["figures"]):
+        raise HTTPException(404, "Reference image unavailable")
+    image = ROOT / "panel-reference" / f"figure-{index}.png"
+    if not image.is_file():
+        raise HTTPException(404, "Reference image unavailable")
+    return FileResponse(image, media_type="image/png")
 
 
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="app")

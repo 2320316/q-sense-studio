@@ -21,6 +21,7 @@ from studio.engine import Halt, train_arm
 from studio.experiment import Experiment, partition, prepare, preview
 from studio.library import data, commit, inspect_files, normalize
 from studio.server import app
+from studio.quantum_trace import frames_since
 from studio.statistics import holm, indicators, report
 from studio.storage import ROOT, read, save
 from studio.worker import execute
@@ -153,6 +154,25 @@ class Workbench(unittest.TestCase):
         trace = read(job / "diagnostics.json")
         self.assertEqual(len(trace["gates"]), c.lookback)
         self.assertEqual(len(trace["quantum"]["angles"]), c.depth)
+        url = "/api/runs/integration/quantum/0"
+        frames = self.client.get(url).json()
+        self.assertEqual([f["epoch"] for f in frames], [1])
+        self.assertEqual(frames[0]["angles"], trace["quantum"]["angles"])
+        self.assertEqual(self.client.get(url + "?after=1").json(), [])
+        self.assertEqual(
+            self.client.get("/api/runs/integration/quantum/-1").status_code, 422
+        )
+        from studio.qt_model import QuantumWeights
+
+        generator = QuantumWeights(plan["weights"], c.depth, c.width)
+        generator.load_state_dict(torch.load(job / "trained.pt", weights_only=True))
+        probs = generator.probabilities().detach().numpy()
+        for q, reported in enumerate(frames[0]["one_probabilities"]):
+            self.assertAlmostEqual(
+                reported,
+                float(probs[(np.arange(len(probs)) >> q) % 2 == 1].sum()),
+                places=5,
+            )
         exported = torch.load(job / "inference.pt", weights_only=True)
         from studio.qt_model import Forecast
 
@@ -245,6 +265,28 @@ class Workbench(unittest.TestCase):
                     422,
                 )
 
+    def test_local_presentation_figures(self):
+        self.assertIsNone(self.client.get("/api/presentation/reference").json())
+        self.assertEqual(
+            self.client.get("/api/presentation/reference/image/0").status_code, 404
+        )
+        dest = ROOT / "panel-reference"
+        dest.mkdir()
+        save(
+            dest / "reference.json", {"title": "Fixture", "figures": [{"title": "Run"}]}
+        )
+        (dest / "figure-0.png").write_bytes(b"test image")
+        self.assertEqual(
+            self.client.get("/api/presentation/reference").json()["title"], "Fixture"
+        )
+        self.assertEqual(
+            self.client.get("/api/presentation/reference/image/0").content,
+            b"test image",
+        )
+        self.assertEqual(
+            self.client.get("/api/presentation/reference/image/-1").status_code, 404
+        )
+
     def test_checkpoint_resume(self):
         c = self.config.model_copy(update={"epochs": 3})
         p = prepare(c)
@@ -261,6 +303,9 @@ class Workbench(unittest.TestCase):
             clean, _ = train_arm(
                 c, p, "qt", 42, Path(b), lambda *args: None, lambda: None
             )
+            recorded = frames_since(Path(a), 0)
+            self.assertEqual([f["epoch"] for f in recorded], [1, 2, 3])
+            self.assertEqual(recorded, frames_since(Path(b), 0))
         np.testing.assert_array_equal(clean, resumed)
 
     def test_import_preview_mapping_join_and_control(self):
