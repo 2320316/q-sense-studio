@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 
+export const ConnectionRevision = React.createContext(0);
+export class ConnectionError extends Error {
+  constructor() {
+    super("Cannot reach the local Q-Sense Studio server.");
+  }
+}
+
 export async function api(path, body, method) {
   const form = body instanceof FormData;
-  const response = await fetch("/api/" + path, {
+  const options = {
     method: method || (body === undefined ? "GET" : "POST"),
     headers: {
       "X-QSense": "studio",
@@ -11,7 +18,14 @@ export async function api(path, body, method) {
         : {}),
     },
     body: body === undefined ? undefined : form ? body : JSON.stringify(body),
-  });
+  };
+  let response;
+  try {
+    response = await fetch("/api/" + path, options);
+  } catch (error) {
+    if (error instanceof TypeError) throw new ConnectionError();
+    throw error;
+  }
   if (!response.ok) {
     const error = await response
       .json()

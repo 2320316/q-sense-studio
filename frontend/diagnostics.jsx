@@ -1,3 +1,4 @@
+import { ConnectionRevision } from "./common";
 import React, { useEffect, useState } from "react";
 import { api, Field, labels, num, Tag } from "./common";
 
@@ -281,6 +282,7 @@ export function TrainingView({ runs, active, setActive, detail }) {
 }
 
 export function Verification({ id, job, unit }) {
+  const revision = React.useContext(ConnectionRevision);
   const [limit, setLimit] = useState(""),
     [rounds, setRounds] = useState(20),
     [seed, setSeed] = useState(42),
@@ -290,13 +292,14 @@ export function Verification({ id, job, unit }) {
   const endpoint = `runs/${id}/jobs/${job}`;
   useEffect(() => {
     let ok = true;
+    setError("");
     api(endpoint + "/inspection")
       .then((v) => ok && setReport(v.verification))
       .catch((e) => ok && setError(e.message));
     return () => {
       ok = false;
     };
-  }, [endpoint]);
+  }, [endpoint, revision]);
   const run = async (e) => {
     e.preventDefault();
     setBusy(true);

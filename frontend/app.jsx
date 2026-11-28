@@ -1,6 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, Empty, Heading, Icon, labels, num, Plot, Tag } from "./common";
+import {
+  api,
+  ConnectionError,
+  ConnectionRevision,
+  Empty,
+  Heading,
+  Icon,
+  labels,
+  num,
+  Plot,
+  Tag,
+} from "./common";
 import { Library, Review, Sources } from "./library";
 import { defaultDataset, Monitor, preset, Training } from "./training";
 
@@ -285,7 +296,10 @@ function App() {
     [stage, setStage] = useState([]),
     [err, setErr] = useState(""),
     [busy, setBusy] = useState(false),
-    [online, setOnline] = useState(true);
+    [online, setOnline] = useState(true),
+    [revision, setRevision] = useState(0),
+    [listError, setListError] = useState(""),
+    [detailError, setDetailError] = useState("");
   const fileRef = useRef(),
     provider = useRef("Local import");
   const go = (p, present = false) => {
@@ -300,43 +314,74 @@ function App() {
     setRuns(rs);
     setSelected((s) => s || lib[0]?.id || "");
     setActive((s) => s || rs[0]?.id || "");
-    setOnline(true);
   }, []);
   useEffect(() => {
-    refresh().catch((e) => setErr(e.message));
-    api("sources")
-      .then(setSources)
-      .catch((e) => setErr(e.message));
-    api("devices")
-      .then(setDevices)
-      .catch((e) => setErr(e.message));
-    const clock = setInterval(
-      () =>
-        api("runs")
-          .then((rs) => {
-            setRuns(rs);
-            setOnline(true);
-          })
-          .catch(() => setOnline(false)),
-      3000,
-    );
-    return () => clearInterval(clock);
+    let closed = false,
+      timer,
+      initialize = true,
+      disconnected = false;
+    async function poll() {
+      try {
+        if (initialize || disconnected) {
+          const [, sources, devices] = await Promise.all([
+            refresh(),
+            api("sources"),
+            api("devices"),
+          ]);
+          if (closed) return;
+          setSources(sources);
+          setDevices(devices);
+          initialize = false;
+          if (disconnected) setRevision((n) => n + 1);
+        } else {
+          const rs = await api("runs");
+          if (closed) return;
+          setRuns(rs);
+        }
+        disconnected = false;
+        setOnline(true);
+        setListError("");
+      } catch (e) {
+        if (closed) return;
+        if (e instanceof ConnectionError) {
+          disconnected = true;
+          setOnline(false);
+        } else setListError(e.message);
+      }
+      if (!closed) timer = setTimeout(poll, 3000);
+    }
+    poll();
+    return () => {
+      closed = true;
+      clearTimeout(timer);
+    };
   }, [refresh]);
   useEffect(() => {
-    let ok = true;
+    let ok = true,
+      timer;
     setDetail(null);
+    setDetailError("");
     if (!active || !["Training", "Runs"].includes(page)) return;
-    const poll = () =>
-      api("runs/" + active)
-        .then((r) => {
-          if (ok) setDetail(r);
-        })
-        .catch((e) => ok && setErr(e.message));
+    async function poll() {
+      try {
+        const value = await api("runs/" + active);
+        if (!ok) return;
+        setDetail(value);
+        setDetailError("");
+      } catch (e) {
+        if (!ok) return;
+        setDetailError(
+          e instanceof ConnectionError
+            ? "Reconnecting to the selected run…"
+            : e.message,
+        );
+      }
+      if (ok) timer = setTimeout(poll, 1500);
+    }
     poll();
-    const id = setInterval(poll, 1500);
     return () => {
       ok = false;
-      clearInterval(id);
+      clearTimeout(timer);
     };
   }, [active, page]);
   const act = async (fn) => {
@@ -380,7 +425,7 @@ function App() {
     provider.current = typeof src === "string" ? src : "Local import";
     fileRef.current.click();
   };
-  return (
+  const shell = (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
@@ -431,6 +476,17 @@ function App() {
               e.target.value = "";
             }}
           />
+          {!online && (
+            <div className="notice" role="status">
+              Local server disconnected. Studio is retrying automatically. If
+              the server was closed, restart it with the Studio launcher.
+            </div>
+          )}
+          {online && (listError || detailError) && (
+            <div className="notice" role="status">
+              {listError || detailError}
+            </div>
+          )}
           {err && (
             <div role="alert" className="notice">
               {err}
@@ -546,6 +602,11 @@ function App() {
         </article>
       </main>
     </div>
+  );
+  return (
+    <ConnectionRevision.Provider value={revision}>
+      {shell}
+    </ConnectionRevision.Provider>
   );
 }
 createRoot(document.getElementById("root")).render(<App />);

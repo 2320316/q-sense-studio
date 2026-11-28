@@ -1,8 +1,10 @@
+import { ConnectionRevision } from "./common";
 import React, { useState, useEffect } from "react";
 import { api, Circuit, Field, Plot, labels, num, Tag } from "./common";
 import { Verification } from "./diagnostics";
 
 export function ForecastEvidence({ id, current, unit, children }) {
+  const revision = React.useContext(ConnectionRevision);
   const [points, setPoints] = useState([]),
     [metric, setMetric] = useState("mae"),
     [error, setError] = useState("");
@@ -17,7 +19,7 @@ export function ForecastEvidence({ id, current, unit, children }) {
     return () => {
       ok = false;
     };
-  }, [id, current?.job]);
+  }, [id, current?.job, revision]);
   const link = (file, label) => (
     <a
       className="button secondary"
